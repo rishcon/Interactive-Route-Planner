@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Interactive Route Planner</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  #map {
+    height: 65vh;
+    width: 100%;
+    border-radius: 0.75rem;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  }
+  body {
+    background: linear-gradient(135deg, #f0f4ff 0%, #d9e4ff 100%);
+  }
+  button:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.6);
+  }
+  input, select {
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  input:focus, select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  }
+</style>
+<!-- Leaflet CSS -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+</head>
+<body class="min-h-screen flex flex-col font-sans p-6">
+
+<header class="mb-6 text-center">
+  <h1 class="text-4xl font-extrabold text-indigo-700 drop-shadow-lg">Interactive Route Planner</h1>
+  <p class="mt-2 text-indigo-600 font-medium">Введите начальную и конечную точки маршрута и сразу увидьте результат</p>
+</header>
+
+<main class="flex-grow max-w-6xl mx-auto w-full flex flex-col gap-6">
+
+  <!-- Форма ввода маршрута -->
+  <form id="routeForm" class="bg-white p-6 rounded-xl shadow-lg flex flex-col md:flex-row gap-5 items-center justify-center">
+    <div class="flex flex-col flex-grow max-w-md">
+      <label for="startPoint" class="mb-1 font-semibold text-gray-700">Откуда</label>
+      <input type="text" id="startPoint" placeholder="Например, Алматы" class="px-4 py-3 border border-gray-300 rounded-lg shadow-sm" required />
+    </div>
+    <div class="flex flex-col flex-grow max-w-md">
+      <label for="endPoint" class="mb-1 font-semibold text-gray-700">Куда</label>
+      <input type="text" id="endPoint" placeholder="Например, Нур-Султан" class="px-4 py-3 border border-gray-300 rounded-lg shadow-sm" required />
+    </div>
+    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 py-3 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:-translate-y-0.5 hover:shadow-xl">
+      Построить маршрут
+    </button>
+  </form>
+
+  <!-- Карта -->
+  <div id="map"></div>
+
+  <!-- Информация о длине маршрута -->
+  <div class="bg-white rounded-xl shadow-lg p-5 text-center text-xl font-semibold text-indigo-800">
+    Длина маршрута: <span id="distance" class="text-indigo-600">0</span> км
+  </div>
+
+  <!-- Кнопки управления маршрутом -->
+  <div class="flex justify-center gap-6">
+    <button id="clearBtn" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg transition duration-300 ease-in-out hover:scale-105">
+      Очистить
+    </button>
+    <button id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow-lg transition duration-300 ease-in-out hover:scale-105">
+      Сохранить
+    </button>
+    <input type="file" id="loadInput" accept=".json" class="hidden" />
+    <button id="loadBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl shadow-lg transition duration-300 ease-in-out hover:scale-105">
+      Загрузить
+    </button>
+  </div>
+
+</main>
+
+<footer class="text-center mt-12 mb-6 text-indigo-400 text-sm font-medium select-none">
+  &copy; 2025 Interactive Route Planner
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([51.505, -0.09], 5);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  let startMarker = null;
+  let endMarker = null;
+  let routeLine = null;
+
+  const cityCoords = {
+    'Алматы': [43.222, 76.8512],
+    'Нур-Султан': [51.1605, 71.4704],
+    'Шымкент': [42.3417, 69.5901],
+    'Москва': [55.7558, 37.6173],
+    'Санкт-Петербург': [59.9343, 30.3351]
+  };
+
+  function getDistance(latlng1, latlng2) {
+    return latlng1.distanceTo(latlng2);
+  }
+
+  function updateRoute() {
+    if (routeLine) {
+      map.removeLayer(routeLine);
+      routeLine = null;
+    }
+    if (startMarker && endMarker) {
+      const latlngs = [startMarker.getLatLng(), endMarker.getLatLng()];
+      routeLine = L.polyline(latlngs, { color: '#4F46E5', weight: 5, opacity: 0.75, dashArray: '10,10' }).addTo(map);
+      let distance = getDistance(latlngs[0], latlngs[1]);
+      distance = (distance / 1000).toFixed(2);
+      document.getElementById('distance').textContent = distance;
+      map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+    } else {
+      document.getElementById('distance').textContent = '0';
+    }
+  }
+
+  document.getElementById('routeForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const startCity = document.getElementById('startPoint').value.trim();
+    const endCity = document.getElementById('endPoint').value.trim();
+    const errorEl = document.getElementById('formError');
+
+    if (!startCity || !endCity) {
+      alert('Пожалуйста, заполните оба поля.');
+      return;
+    }
+
+    if (!(startCity in cityCoords) || !(endCity in cityCoords)) {
+      alert('Город не найден. Попробуйте: Алматы, Нур-Султан, Шымкент, Москва, Санкт-Петербург');
+      return;
+    }
+
+    const startLatLng = L.latLng(cityCoords[startCity][0], cityCoords[startCity][1]);
+    const endLatLng = L.latLng(cityCoords[endCity][0], cityCoords[endCity][1]);
+
+    if (startMarker) map.removeLayer(startMarker);
+    if (endMarker) map.removeLayer(endMarker);
+
+    startMarker = L.marker(startLatLng, { draggable: true }).addTo(map).bindPopup(`Откуда: ${startCity}`).openPopup();
+    endMarker = L.marker(endLatLng, { draggable: true }).addTo(map).bindPopup(`Куда: ${endCity}`).openPopup();
+
+    // Поддержка перетаскивания маркеров с обновлением маршрута
+    startMarker.on('dragend', function (e) {
+      cityCoords[startCity] = [e.target.getLatLng().lat, e.target.getLatLng().lng]; // можно обновить если нужно
+      updateRoute();
+    });
+    endMarker.on('dragend', function (e) {
+      cityCoords[endCity] = [e.target.getLatLng().lat, e.target.getLatLng().lng];
+      updateRoute();
+    });
+
+    updateRoute();
+  });
+
+  // Очистка маршрута и формы
+  document.getElementById('clearBtn').onclick = () => {
+    if (startMarker) {
+      map.removeLayer(startMarker);
+      startMarker = null;
+    }
+    if (endMarker) {
+      map.removeLayer(endMarker);
+      endMarker = null;
+    }
+    if (routeLine) {
+      map.removeLayer(routeLine);
+      routeLine = null;
+    }
+    document.getElementById('distance').textContent = '0';
+    document.getElementById('routeForm').reset();
+    map.setView([51.505, -0.09], 5);
+  };
+
+  // Сохранение маршрута в JSON
+  document.getElementById('saveBtn').onclick = () => {
+    if (!startMarker || !endMarker) {
+      alert('Маршрут не построен!');
+      return;
+    }
+    const data = {
+      start: startMarker.getLatLng(),
+      end: endMarker.getLatLng()
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'route.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Загрузка маршрута из JSON
+  document.getElementById('loadBtn').onclick = () => {
+    document.getElementById('loadInput').click();
+  };
+
+  document.getElementById('loadInput').onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (!data.start || !data.end) throw new Error('Неверный формат файла');
+        const startLatLng = L.latLng(data.start.lat, data.start.lng);
+        const endLatLng = L.latLng(data.end.lat, data.end.lng);
+
+        if (startMarker) map.removeLayer(startMarker);
+        if (endMarker) map.removeLayer(endMarker);
+        if (routeLine) map.removeLayer(routeLine);
+
+        startMarker = L.marker(startLatLng, { draggable: true }).addTo(map).bindPopup(`Откуда`).openPopup();
+        endMarker = L.marker(endLatLng, { draggable: true }).addTo(map).bindPopup(`Куда`).openPopup();
+
+        startMarker.on('dragend', function () {
+          updateRoute();
+        });
+        endMarker.on('dragend', function () {
+          updateRoute();
+        });
+
+        updateRoute();
+      } catch (err) {
+        alert('Ошибка загрузки маршрута: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+</script>
+</body>
+</html>
